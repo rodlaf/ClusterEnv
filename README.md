@@ -4,15 +4,9 @@
 
 ClusterEnv is an open-source framework designed to distribute reinforcement learning (RL) environment execution across Slurm-managed high-performance computing clusters. It enables seamless parallelization of both lightweight environments (e.g., CartPole) and computationally intensive physics-based simulations (e.g., Mujoco), optimizing training efficiency on HPC infrastructure.
 
-## Key Features
-
-* Slurm Integration: Leverages Slurm’s job scheduling, resource management, and fault tolerance capabilities to orchestrate environment execution.
-* Environment Abstraction Layer: Supports diverse simulation libraries (Mujoco, Bullet, custom physics engines) through a unified API.
-* Scalable Execution: Automatically distributes environments across nodes based on CPU/GPU availability, achieving near-linear scaling up to 32+ nodes.
-* State Synchronization: Minimizes communication overhead via async/await patterns, ensuring efficient state updates between learners and workers.
-* Open Source & Modular: Extensible architecture with pre-built templates for Mujoco, Bullet, and custom environments.
 
 ## Getting Started
+
 Prerequisites: 
 Slurm workload manager installed on your cluster.
 Python 3.8+, PyTorch (for RL integration), and OpenAI Gym/Mujoco libraries.
@@ -67,9 +61,3 @@ Use the CLI to register it:
 ```python
 python clusterenv/register_env.py --name MyEnv --path /path/to/my_env.py
 ```
-
-## Performance Tuning Tips
-
-Use Slurm’s partition-aware scheduling to prioritize GPU nodes for physics-based environments.
-Adjust n_parallel based on node CPU/GPU availability to maximize utilization.
-Enable fault tolerance by setting slurm_requeueable=True in your job scripts.
