@@ -1,0 +1,3 @@
+
+class SlurmConfig():
+    pass

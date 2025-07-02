@@ -1,16 +1,14 @@
 # ClusterEnv
 
-## Project Overview
-
-ClusterEnv is an open-source framework designed to distribute reinforcement learning (RL) environment execution across Slurm-managed high-performance computing clusters. It enables seamless parallelization of both lightweight environments (e.g., CartPole) and computationally intensive physics-based simulations (e.g., Mujoco), optimizing training efficiency on HPC infrastructure.
-
+ClusterEnv is an open-source framework designed to distribute reinforcement learning (RL) environment execution across Slurm-managed high-performance computing clusters. It enables parallelization of both lightweight environments (e.g., CartPole) and computationally intensive physics-based simulations (e.g., Mujoco), optimizing training efficiency on HPC infrastructure.
 
 ## Getting Started
 
 Prerequisites: 
+
 Slurm workload manager installed on your cluster.
-Python 3.8+, PyTorch (for RL integration), and OpenAI Gym/Mujoco libraries.
 SSH access to submit jobs via sbatch.
+
 Installation: 
 ```bash
 git clone https://github.com/rodlaf/ClusterEnv.git

@@ -1,0 +1,5 @@
+# python 3.10
+gymnasium
+torch
+numpy
+tyro
