@@ -19,8 +19,8 @@ Python 3.8+, PyTorch (for RL integration), and OpenAI Gym/Mujoco libraries.
 SSH access to submit jobs via sbatch.
 Installation: 
 ```bash
-git clone https://github.com/cluster-gym.git
-cd cluster-gym
+git clone https://github.com/rodlaf/ClusterEnv.git
+cd clusterenv
 pip install -r requirements.txt
 ```
 
@@ -35,34 +35,28 @@ env_config = {
     "slurm_partition": "gpu"
 }
 
+# Define SLURM job configuration
 config = SlurmConfig(
     job_name="mujoco_training",
     time_limit="02:00:00",
     nodes=4,
-    gpus_per_node=2
+    gpus_per_node=2,
+    cpus_per_task=4,   # Optional
+    mem_per_node="32G" # Optional
 )
 
-# Initialize distributed environment
+# Initialize and launch distributed environment
 env = ClusterEnv(env_config, config)
+env.launch()  # Submits the SLURM job internally
 ```
 
-Submitting Jobs to Slurm
-Create a batch script (submit.sh):
+You can then interact with the environment from your training loop as usual:
 
-```bash
-#!/bin/bash
-#SBATCH --job-name=mujoco_train
-#SBATCH --nodes=4
-#SBATCH --gpus=8
-#SBATCH --time=02:00:00
-
-python train.py --config env/mujoco_ant.yaml
-```
-
-Run:
-
-```bash
-sbatch submit.sh
+```python
+obs = env.reset()
+for _ in range(1000):
+    action = agent.act(obs)
+    obs, reward, done, info = env.step(action)
 ```
 
 ## Custom Environments
