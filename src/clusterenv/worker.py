@@ -29,6 +29,11 @@ def compute_kl(old_logits, new_logits):
     new_log_probs = F.log_softmax(new_logits, dim=-1)
     return F.kl_div(new_log_probs, old_probs, reduction="batchmean")
 
+def to_serializable(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
 def main():
     args = parse_args()
 
@@ -133,7 +138,7 @@ def main():
 
             socket.send_multipart([
                 b"",
-                json.dumps(response).encode()
+                json.dumps(response, default=to_serializable).encode()
             ])
             obs = obs_next
             print("[Worker] Sent step response", file=sys.stderr)
