@@ -38,35 +38,47 @@ def main():
         sys.stderr.flush()
 
     env = load_env(env_config)
-    obs = env.reset()
+    obs = env.reset()[0]  # assuming SyncVectorEnv
     agent = None
 
     ctx = zmq.Context()
     socket = ctx.socket(zmq.DEALER)
     identity = f"worker-{np.random.randint(10000)}".encode()
     socket.setsockopt(zmq.IDENTITY, identity)
-    socket.connect(f"tcp://{args.controller_ip}:{args.controller_port}")
+    connect_addr = f"tcp://{args.controller_ip}:{args.controller_port}"
+    socket.connect(connect_addr)
+
+    print(f"[Worker] Socket identity: {identity}", file=sys.stderr)
+    print(f"[Worker] Connecting to: {connect_addr}", file=sys.stderr)
+    sys.stderr.flush()
 
     socket.send_json({"type": "register"})
+    print("[Worker] Sent registration", file=sys.stderr)
+    sys.stderr.flush()
 
     kl_threshold = env_config.get("kl_threshold", 0.1)
     old_logits = None
 
     while True:
         parts = socket.recv_multipart()
-        if len(parts) != 3:
-            print(f"[Worker] Invalid multipart length: {len(parts)}", file=sys.stderr)
-            continue
-        _, _, msg = parts
+        print(f"[Worker] Received parts: {len(parts)}", file=sys.stderr)
+        sys.stderr.flush()
 
+        if len(parts) < 2:
+            print("[Worker] Skipping invalid multipart message", file=sys.stderr)
+            continue
+
+        msg = parts[-1]
         payload = json.loads(msg.decode())
 
         if payload["type"] == "reset":
-            obs = env.reset()
+            obs = env.reset()[0]
             socket.send_json({
                 "type": "response",
                 "obs": obs.tolist()  # make JSON serializable
             })
+            print("[Worker] Sent reset response", file=sys.stderr)
+            sys.stderr.flush()
 
         elif payload["type"] == "step":
             if agent is None and "agent_serialized" in payload:
@@ -80,27 +92,29 @@ def main():
             weights = payload["agent_weights"]
             deserialize_weights(agent, weights)
 
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+            obs_tensor = torch.tensor(obs, dtype=torch.float32)
             logits = agent(obs_tensor)
 
             if old_logits is not None:
                 kl = compute_kl(old_logits.detach(), logits.detach()).item()
                 if kl > kl_threshold:
-                    deserialize_weights(agent, weights)  # force re-sync
+                    deserialize_weights(agent, weights)
             old_logits = logits.detach()
 
-            action = torch.argmax(logits, dim=-1).item()
-            obs_next, reward, done, info = env.step(action)
+            actions = logits.argmax(dim=-1).cpu().numpy()
+            obs_next, reward, terminated, truncated, infos = env.step(actions)
 
             response = {
                 "type": "response",
                 "obs": obs_next.tolist(),
-                "reward": reward,
-                "done": done,
-                "info": info
+                "reward": reward.tolist(),
+                "done": (terminated | truncated).tolist(),
+                "info": infos,
             }
             socket.send_json(response)
             obs = obs_next
+            print("[Worker] Sent step response", file=sys.stderr)
+            sys.stderr.flush()
 
 if __name__ == "__main__":
     main()

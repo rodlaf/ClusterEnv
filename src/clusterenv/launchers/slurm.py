@@ -10,7 +10,6 @@ class SlurmConfig:
     job_name: str = "clusterenv_job"
     nodes: int = 1
     gpus_per_node: int = 1
-    tasks_per_node: int = None
     time_limit: str = "01:00:00"
     partition: str = "gpu"
     gpu_type: str = "gpu"
@@ -28,13 +27,12 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
     time_limit = slurm_config.time_limit
     partition = slurm_config.partition
     gpus_per_node = slurm_config.gpus_per_node
-    total_tasks = slurm_config.tasks_per_node or gpus_per_node
     gpu_type = slurm_config.gpu_type
 
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={job_name}
+#SBATCH --exclusive
 #SBATCH --nodes={n_nodes}
-#SBATCH --ntasks-per-node={total_tasks}
 #SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
 #SBATCH --partition={partition}
 #SBATCH --time={time_limit}
@@ -42,7 +40,7 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
 #SBATCH --error=logs/{job_name}_%j.err
 #SBATCH --export=ALL
 
-srun python -m clusterenv.worker \\
+python -m clusterenv.worker \\
     --config_path {env_config_path} \\
     --controller_ip {controller_ip} \\
     --controller_port 5555

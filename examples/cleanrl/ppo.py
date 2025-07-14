@@ -100,24 +100,23 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # Initialize ClusterEnv
-    def make_agent(envs):
-        return Agent(envs.observation_space.shape[0], envs.action_space.n)
-    
     envs = ClusterEnv(
-        env_config={"type": "gymnasium", "env_name": args.env_id, "n_parallel": args.num_envs},
+        env_config={
+            "type": "gymnasium", 
+            "env_name": args.env_id, 
+            "envs_per_node": args.num_envs
+        },
         config=SlurmConfig(
             job_name=run_name,
             time_limit="01:00:00",
-            nodes=1,
+            nodes=2,
             gpus_per_node=1,
             partition="gaia", # replace with partition information
-            gpu_type="gpu:volta"
-        ),
+            gpu_type="gpu:volta" # "
+        )
     )
     obs_shape, action_dim = envs.launch()
     agent = Agent(obs_shape, action_dim)
-    envs.set_agent(agent)
-
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     obs = torch.zeros((args.num_steps, args.num_envs, obs_shape)).to(device)
@@ -129,7 +128,7 @@ if __name__ == "__main__":
 
     global_step = 0
     start_time = time.time()
-    next_obs = torch.tensor(envs.reset()).float().to(device)
+    next_obs = torch.tensor(envs.reset()).float().to(device) # envs.reset()
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
@@ -148,7 +147,7 @@ if __name__ == "__main__":
             actions[step] = action
             logprobs[step] = logprob
 
-            next_obs_arr, reward_arr, done_arr, _ = envs.step(action.cpu().numpy(), agent=agent)
+            next_obs_arr, reward_arr, done_arr, _ = envs.step(agent) # envs.step()
             next_done = torch.tensor(done_arr).to(device)
             rewards[step] = torch.tensor(reward_arr).to(device).view(-1)
             next_obs = torch.tensor(next_obs_arr).float().to(device)

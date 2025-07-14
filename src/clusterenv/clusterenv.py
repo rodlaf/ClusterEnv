@@ -34,9 +34,6 @@ class ClusterEnv:
         mod = importlib.import_module(f"clusterenv.environments.{env_type.lower()}")
         return mod.make_env(env_config)
 
-    def set_agent(self, agent: torch.nn.Module):
-        self.serialized_agent = cloudpickle.dumps(agent)
-
     def launch(self):
         print("[ClusterEnv] Launching workers via SLURM...")
 
@@ -50,7 +47,7 @@ class ClusterEnv:
         launch_slurm_job(self.slurm_config, config_path)
 
         # Wait for workers to connect
-        self._wait_for_worker_connections(expected=self.env_config.get("n_parallel", 1))
+        self._wait_for_worker_connections(expected=self.slurm_config.nodes)
 
         # Instantiate a local copy of the env to get shape info
         env = self.load_env(self.env_config)
@@ -61,6 +58,12 @@ class ClusterEnv:
     def _wait_for_worker_connections(self, expected):
         poller = zmq.Poller()
         poller.register(self.socket, zmq.POLLIN)
+        print(f"[ClusterEnv] Waiting for {expected} worker(s) to register...")
+
+        import time
+        start_time = time.time()
+        timeout = 30  # seconds
+
         while len(self.worker_ready) < expected:
             socks = dict(poller.poll(1000))
             if self.socket in socks:
@@ -69,9 +72,13 @@ class ClusterEnv:
                     identity, _, message = parts
                     msg = json.loads(message.decode())
                     if msg.get("type") == "register":
-                        self.worker_ready.add(identity)
-                        self.workers.append(identity)
-                        print(f"[ClusterEnv] Worker registered: {identity.decode()}")
+                        if identity not in self.worker_ready:
+                            self.worker_ready.add(identity)
+                            self.workers.append(identity)
+                            print(f"[ClusterEnv] Worker registered: {identity.decode()}")
+
+            if time.time() - start_time > timeout:
+                raise TimeoutError(f"[ClusterEnv] Timed out waiting for {expected} workers. Only got {len(self.worker_ready)}.")
 
     def reset(self):
         for identity in self.workers:
@@ -83,6 +90,13 @@ class ClusterEnv:
         return self._gather("reset")
 
     def step(self, agent_input: torch.nn.Module):
+        if not self.agent:
+            self.agent = agent_input
+            self.serialized_agent = cloudpickle.dumps(agent_input)
+        else:
+            if self.agent != agent_input:
+                raise ValueError("Agent must be consistent each call to step().")
+
         if not self.agent_sent:
             self.agent_sent = True
             agent_payload = self.serialized_agent.hex()
@@ -120,9 +134,11 @@ class ClusterEnv:
                 if len(parts) == 3:
                     identity, _, message = parts
                     msg = json.loads(message.decode())
+
                     if msg["type"] == "response":
                         remaining.remove(identity)
-                        obs.append(msg["obs"])
+                        obs.extend(msg["obs"])
+
                         if mode == "step":
                             rews.append(msg["reward"])
                             dones.append(msg["done"])
