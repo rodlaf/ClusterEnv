@@ -169,21 +169,22 @@ if __name__ == "__main__":
             actions[step] = torch.tensor(action_arr).to(device).view(-1)
 
         with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
+            _, _, _, next_value = agent(next_obs)
+            next_value = next_value.reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
                 if t == args.num_steps - 1:
-                    nextnonterminal = 1.0 - next_done
+                    nextnonterminal = 1.0 - next_done.float()
                     nextvalues = next_value
                 else:
-                    nextnonterminal = 1.0 - dones[t + 1]
+                    nextnonterminal = 1.0 - dones[t + 1].float()
                     nextvalues = values[t + 1]
                 delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
                 advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
             returns = advantages + values
 
-        b_obs = obs.reshape((-1, obs_shape))
+        b_obs = obs.reshape(-1, *obs_shape)
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape(-1)
         b_advantages = advantages.reshape(-1)
@@ -196,7 +197,7 @@ if __name__ == "__main__":
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])
+                _, newlogprob, entropy, newvalue = agent(b_obs[mb_inds], b_actions[mb_inds].long())
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
