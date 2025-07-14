@@ -13,6 +13,7 @@ class SlurmConfig:
     time_limit: str = "01:00:00"
     partition: str = "gpu"
     gpu_type: str = "gpu"
+    debug: bool = False
 
 
 def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
@@ -28,6 +29,7 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
     partition = slurm_config.partition
     gpus_per_node = slurm_config.gpus_per_node
     gpu_type = slurm_config.gpu_type
+    debug = slurm_config.debug
 
 ##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
     slurm_script = f"""#!/bin/bash
@@ -46,6 +48,7 @@ srun python -m clusterenv.worker \
     --config_path {env_config_path} \
     --controller_ip {controller_ip} \
     --controller_port 5555
+    --debug {debug}
 """
 
     os.makedirs("logs", exist_ok=True)

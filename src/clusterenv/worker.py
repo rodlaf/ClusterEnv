@@ -13,6 +13,7 @@ def parse_args():
     parser.add_argument("--config_path", type=str, required=True)
     parser.add_argument("--controller_ip", type=str, required=True)
     parser.add_argument("--controller_port", type=int, default=5555)
+    parser.add_argument("--debug", action="store_true")
     return parser.parse_args()
 
 def load_env(env_config):
@@ -36,14 +37,16 @@ def to_serializable(obj):
 
 def main():
     args = parse_args()
+    debug = args.debug
 
     with open(args.config_path, "r") as f:
         env_config = json.load(f)
-        print(f"[Worker] Loaded env_config: {env_config}", file=sys.stderr)
-        sys.stderr.flush()
+        if debug:
+            print(f"[Worker] Loaded env_config: {env_config}", file=sys.stderr)
+            sys.stderr.flush()
 
     env = load_env(env_config)
-    obs = env.reset()[0]  # assuming SyncVectorEnv
+    obs = env.reset()[0]
     agent = None
 
     ctx = zmq.Context()
@@ -53,27 +56,31 @@ def main():
     connect_addr = f"tcp://{args.controller_ip}:{args.controller_port}"
     socket.connect(connect_addr)
 
-    print(f"[Worker] Socket identity: {identity}", file=sys.stderr)
-    print(f"[Worker] Connecting to: {connect_addr}", file=sys.stderr)
-    sys.stderr.flush()
+    if debug:
+        print(f"[Worker] Socket identity: {identity}", file=sys.stderr)
+        print(f"[Worker] Connecting to: {connect_addr}", file=sys.stderr)
+        sys.stderr.flush()
 
     socket.send_multipart([
-        b"",  # empty delimiter frame required for ROUTER socket
+        b"",
         json.dumps({"type": "register"}).encode()
     ])
-    print("[Worker] Sent registration", file=sys.stderr)
-    sys.stderr.flush()
+    if debug:
+        print("[Worker] Sent registration", file=sys.stderr)
+        sys.stderr.flush()
 
     kl_threshold = env_config.get("kl_threshold", 0.1)
     old_logits = None
 
     while True:
         parts = socket.recv_multipart()
-        print(f"[Worker] Received parts: {len(parts)}", file=sys.stderr)
-        sys.stderr.flush()
+        if debug:
+            print(f"[Worker] Received parts: {len(parts)}", file=sys.stderr)
+            sys.stderr.flush()
 
         if len(parts) < 2:
-            print("[Worker] Skipping invalid multipart message", file=sys.stderr)
+            if debug:
+                print("[Worker] Skipping invalid multipart message", file=sys.stderr)
             continue
 
         msg = parts[-1]
@@ -88,28 +95,34 @@ def main():
                     "obs": obs.tolist()
                 }).encode()
             ])
-            print("[Worker] Sent reset response", file=sys.stderr)
-            sys.stderr.flush()
+            if debug:
+                print("[Worker] Sent reset response", file=sys.stderr)
+                sys.stderr.flush()
 
         elif payload["type"] == "step":
-            print("[Worker] Received step payload", file=sys.stderr)
+            if debug:
+                print("[Worker] Received step payload", file=sys.stderr)
             if "agent_serialized" in payload:
-                print("[Worker] Deserializing agent...", file=sys.stderr)
+                if debug:
+                    print("[Worker] Deserializing agent...", file=sys.stderr)
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
-                print("[Worker] Agent deserialized", file=sys.stderr)
+                if debug:
+                    print("[Worker] Agent deserialized", file=sys.stderr)
 
             if agent is None:
                 raise ValueError("Agent is not initialized and was not provided.")
 
             weights = payload["agent_weights"]
-            print("[Worker] Loading weights...", file=sys.stderr)
+            if debug:
+                print("[Worker] Loading weights...", file=sys.stderr)
             deserialize_weights(agent, weights)
-            print("[Worker] Weights loaded", file=sys.stderr)
-
-            print("[Worker] Running inference...", file=sys.stderr)
+            if debug:
+                print("[Worker] Weights loaded", file=sys.stderr)
+                print("[Worker] Running inference...", file=sys.stderr)
             obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
             action, logprob, _, value = agent(obs_tensor)
-            print("[Worker] Inference done", file=sys.stderr)
+            if debug:
+                print("[Worker] Inference done", file=sys.stderr)
 
             if old_logits is not None:
                 with torch.no_grad():
@@ -122,15 +135,39 @@ def main():
                 old_logits = agent.actor(obs_tensor).detach()
 
             action_np = action.cpu().numpy().squeeze(0)
-            print(f"[Worker] action_np shape: {action_np.shape}", file=sys.stderr)
             obs_next, reward, terminated, truncated, infos = env.step(action_np)
+
+            # === Track episodic rewards manually ===
+            if 'episode_rewards' not in locals():
+                episode_rewards = [0.0] * env.num_envs
+                episode_lengths = [0] * env.num_envs
+
+            final_info = []
+            for i in range(env.num_envs):
+                episode_rewards[i] += reward[i]
+                episode_lengths[i] += 1
+
+                if terminated[i] or truncated[i]:
+                    ep_info = {
+                        "episode": {
+                            "r": episode_rewards[i],
+                            "l": episode_lengths[i]
+                        }
+                    }
+                    if debug:
+                        print(f"[Worker] Env {i} episode return: {episode_rewards[i]}", file=sys.stderr)
+                    final_info.append(ep_info)
+                    episode_rewards[i] = 0.0
+                    episode_lengths[i] = 0
+                else:
+                    final_info.append(None)
 
             response = {
                 "type": "response",
                 "obs": obs_next.tolist(),
                 "reward": reward.tolist(),
                 "done": (terminated | truncated).tolist(),
-                "info": infos,
+                "info": {"final_info": final_info},
                 "logprob": logprob.cpu().tolist(),
                 "value": value.cpu().squeeze().tolist(),
                 "action": action_np.tolist(),
@@ -141,8 +178,10 @@ def main():
                 json.dumps(response, default=to_serializable).encode()
             ])
             obs = obs_next
-            print("[Worker] Sent step response", file=sys.stderr)
+            if debug:
+                print("[Worker] Sent step response", file=sys.stderr)
             sys.stderr.flush()
+
 
 if __name__ == "__main__":
     main()

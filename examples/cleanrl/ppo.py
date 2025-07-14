@@ -113,6 +113,7 @@ if __name__ == "__main__":
             nodes=args.num_nodes,
             gpus_per_node=0,
             partition="normal", # replace with partition information
+            debug=False,
             # gpu_type="gpu:volta"
         )
     )
@@ -141,8 +142,6 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     next_obs = torch.tensor(envs.reset()).float().to(device) # ClusterEnv
-    print("next_obs.shape:", next_obs.shape)
-    print(f"next_obs: {next_obs}")
     next_done = torch.zeros(num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
@@ -157,7 +156,7 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             # Inference + stepping happens on the worker nodes
-            next_obs_arr, reward_arr, done_arr, logprob_arr, value_arr, action_arr = envs.step(agent) # ClusterEnv
+            next_obs_arr, reward_arr, done_arr, logprob_arr, value_arr, action_arr, info_arr = envs.step(agent) # ClusterEnv
 
             next_done = torch.tensor(done_arr).to(device)
             rewards[step] = torch.tensor(reward_arr).to(device).view(-1)
@@ -167,6 +166,17 @@ if __name__ == "__main__":
             logprobs[step] = torch.tensor(logprob_arr).to(device).view(-1)
             values[step] = torch.tensor(value_arr).to(device).view(-1)
             actions[step] = torch.tensor(action_arr).to(device).view(-1)
+
+            for i, info in enumerate(info_arr):
+                final_infos = info.get("final_info", [])
+                for j, fi in enumerate(final_infos):
+                    if isinstance(fi, dict) and "episode" in fi:
+                        ep_return = fi["episode"]["r"]
+                        ep_length = fi["episode"]["l"]
+                        print(f"[Reward] global_step={global_step}, episodic_return={ep_return}, length={ep_length}")
+                        writer.add_scalar("charts/episodic_return", ep_return, global_step)
+                        writer.add_scalar("charts/episodic_length", ep_length, global_step)
+
 
         with torch.no_grad():
             _, _, _, next_value = agent(next_obs)

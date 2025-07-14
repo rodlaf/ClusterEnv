@@ -26,6 +26,8 @@ class ClusterEnv:
 
         self.serialized_agent = None
 
+        self.debug = config.debug  # <- add this line
+
         atexit.register(self._cleanup)
 
     def _cleanup(self):
@@ -37,7 +39,8 @@ class ClusterEnv:
         return mod.make_env(env_config)
 
     def launch(self):
-        print("[ClusterEnv] Launching workers via SLURM...")
+        if self.debug:
+            print("[ClusterEnv] Launching workers via SLURM...")
 
         shared_dir = os.path.expanduser("~/clusterenv_shared")
         os.makedirs(shared_dir, exist_ok=True)
@@ -48,13 +51,10 @@ class ClusterEnv:
 
         launch_slurm_job(self.slurm_config, config_path)
 
-        # Wait for expected number of worker nodes to register
         self._wait_for_worker_connections(expected=self.slurm_config.nodes)
 
-        # Instantiate a local copy to extract single-env specs
         env = self.load_env(self.env_config)
 
-        # For SyncVectorEnv, use per-env spec
         if hasattr(env, "single_observation_space"):
             self.observation_space = env.single_observation_space
             self.action_space = env.single_action_space
@@ -63,11 +63,12 @@ class ClusterEnv:
             self.action_space = env.action_space
 
         return self.observation_space, self.action_space
-    
+
     def _wait_for_worker_connections(self, expected):
         poller = zmq.Poller()
         poller.register(self.socket, zmq.POLLIN)
-        print(f"[ClusterEnv] Waiting for {expected} worker(s) to register...")
+        if self.debug:
+            print(f"[ClusterEnv] Waiting for {expected} worker(s) to register...")
 
         import time
         start_time = time.time()
@@ -84,10 +85,13 @@ class ClusterEnv:
                         if identity not in self.worker_ready:
                             self.worker_ready.add(identity)
                             self.workers.append(identity)
-                            print(f"[ClusterEnv] Worker registered: {identity.decode()}")
+                            if self.debug:
+                                print(f"[ClusterEnv] Worker registered: {identity.decode()}")
 
             if time.time() - start_time > timeout:
-                raise TimeoutError(f"[ClusterEnv] Timed out waiting for {expected} workers. Only got {len(self.worker_ready)}.")
+                raise TimeoutError(
+                    f"[ClusterEnv] Timed out waiting for {expected} workers. Only got {len(self.worker_ready)}."
+                )
 
     def reset(self):
         for identity in self.workers:
@@ -127,7 +131,8 @@ class ClusterEnv:
         return self._gather("step")
 
     def _gather(self, mode):
-        print(f"[ClusterEnv] Gathering responses for {mode}...", flush=True)
+        if self.debug:
+            print(f"[ClusterEnv] Gathering responses for {mode}...", flush=True)
 
         obs, rews, dones, infos, logprobs, values, actions = [], [], [], [], [], [], []
         poller = zmq.Poller()
@@ -139,7 +144,8 @@ class ClusterEnv:
             if self.socket in socks:
                 parts = self.socket.recv_multipart()
                 if len(parts) != 3:
-                    print(f"[ClusterEnv] Unexpected multipart length: {len(parts)} — skipping", flush=True)
+                    if self.debug:
+                        print(f"[ClusterEnv] Unexpected multipart length: {len(parts)} — skipping", flush=True)
                     continue
 
                 identity, _, message = parts
@@ -149,17 +155,18 @@ class ClusterEnv:
                     if identity in remaining:
                         remaining.remove(identity)
                     else:
-                        print(f"[ClusterEnv] Warning: duplicate response from {identity.decode()}", flush=True)
+                        if self.debug:
+                            print(f"[ClusterEnv] Warning: duplicate response from {identity.decode()}", flush=True)
                         continue
 
-                    print(f"[ClusterEnv] Got response from {identity.decode()} with {len(msg['obs'])} obs", flush=True)
+                    if self.debug:
+                        print(f"[ClusterEnv] Got response from {identity.decode()} with {len(msg['obs'])} obs", flush=True)
 
                     obs.extend(msg["obs"])
                     if mode == "step":
                         rews.extend(msg["reward"])
                         dones.extend(msg["done"])
-                        infos.extend(msg.get("info", {}))
-
+                        infos.append(msg.get("info", {}))
                         logprobs.extend(msg["logprob"])
                         values.extend(msg["value"])
                         actions.extend(msg["action"])
@@ -167,5 +174,4 @@ class ClusterEnv:
         if mode == "reset":
             return obs
         else:
-            return obs, rews, dones, logprobs, values, actions
-
+            return obs, rews, dones, logprobs, values, actions, infos
