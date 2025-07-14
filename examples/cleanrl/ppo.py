@@ -27,16 +27,16 @@ class Args:
     capture_video: bool = False
 
     env_id: str = "CartPole-v1"
-    total_timesteps: int = 500000
-    learning_rate: float = 2.5e-4
+    total_timesteps: int = 50000000
+    learning_rate: float = 5e-4
     num_steps: int = 128
-    envs_per_node: int = 4
-    num_nodes: int = 2
+    envs_per_node: int = 32
+    num_nodes: int = 4
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
-    num_minibatches: int = 4
-    update_epochs: int = 4
+    num_minibatches: int = 16
+    update_epochs: int = 30
     norm_adv: bool = True
     clip_coef: float = 0.2
     clip_vloss: bool = True
@@ -244,5 +244,4 @@ if __name__ == "__main__":
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
 
-    envs.close()
     writer.close()
