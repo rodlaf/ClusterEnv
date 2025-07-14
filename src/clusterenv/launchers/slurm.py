@@ -32,6 +32,8 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
 ##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={job_name}
+#SBATCH --ntasks={n_nodes}
+#SBATCH --ntasks-per-node=1
 #SBATCH --exclusive
 #SBATCH --nodes={n_nodes}
 #SBATCH --partition={partition}
@@ -40,9 +42,9 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
 #SBATCH --error=logs/{job_name}_%j.err
 #SBATCH --export=ALL
 
-python -m clusterenv.worker \\
-    --config_path {env_config_path} \\
-    --controller_ip {controller_ip} \\
+srun python -m clusterenv.worker \
+    --config_path {env_config_path} \
+    --controller_ip {controller_ip} \
     --controller_port 5555
 """
 
