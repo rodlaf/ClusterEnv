@@ -10,6 +10,7 @@ import torch.optim as optim
 import tyro
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
+import gymnasium as gym
 
 from clusterenv import ClusterEnv
 from clusterenv.launchers import SlurmConfig
@@ -115,11 +116,22 @@ if __name__ == "__main__":
             # gpu_type="gpu:volta" # "
         )
     )
-    obs_shape, action_dim = envs.launch()
-    agent = Agent(obs_shape, action_dim)
+    obs_space, action_space = envs.launch()
+
+    obs_shape = obs_space.shape
+    obs_dim = int(np.prod(obs_shape))
+    if isinstance(action_space, gym.spaces.Discrete):
+        act_dim = action_space.n
+    elif isinstance(action_space, gym.spaces.Box):
+        act_dim = action_space.shape[0]
+    else:
+        raise NotImplementedError("Unsupported action space type")
+
+    agent = Agent(obs_dim, act_dim)
+
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
-    obs = torch.zeros((args.num_steps, args.num_envs, obs_shape)).to(device)
+    obs = torch.zeros((args.num_steps, args.num_envs, *obs_shape)).to(device)
     actions = torch.zeros((args.num_steps, args.num_envs)).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)

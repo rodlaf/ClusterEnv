@@ -46,15 +46,22 @@ class ClusterEnv:
 
         launch_slurm_job(self.slurm_config, config_path)
 
-        # Wait for workers to connect
+        # Wait for expected number of worker nodes to register
         self._wait_for_worker_connections(expected=self.slurm_config.nodes)
 
-        # Instantiate a local copy of the env to get shape info
+        # Instantiate a local copy to extract single-env specs
         env = self.load_env(self.env_config)
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        return env.observation_space.shape[0], env.action_space.n
 
+        # For SyncVectorEnv, use per-env spec
+        if hasattr(env, "single_observation_space"):
+            self.observation_space = env.single_observation_space
+            self.action_space = env.single_action_space
+        else:
+            self.observation_space = env.observation_space
+            self.action_space = env.action_space
+
+        return self.observation_space, self.action_space
+    
     def _wait_for_worker_connections(self, expected):
         poller = zmq.Poller()
         poller.register(self.socket, zmq.POLLIN)
