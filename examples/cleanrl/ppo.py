@@ -114,13 +114,10 @@ if __name__ == "__main__":
             gpu_type="gpu:volta"
         ),
     )
-    envs.launch()
-
-    obs_shape = envs.observation_space.shape[0]
-    action_dim = envs.action_space.n
-
-    agent = make_agent(envs)
+    obs_shape, action_dim = envs.launch()
+    agent = Agent(obs_shape, action_dim)
     envs.set_agent(agent)
+
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     obs = torch.zeros((args.num_steps, args.num_envs, obs_shape)).to(device)

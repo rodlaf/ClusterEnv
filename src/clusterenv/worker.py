@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 import importlib
 import cloudpickle
+import sys
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -33,9 +34,12 @@ def main():
 
     with open(args.config_path, "r") as f:
         env_config = json.load(f)
+        print(f"[Worker] Loaded env_config: {env_config}", file=sys.stderr)
+        sys.stderr.flush()
 
     env = load_env(env_config)
     obs = env.reset()
+    agent = None
 
     ctx = zmq.Context()
     socket = ctx.socket(zmq.DEALER)
@@ -43,49 +47,54 @@ def main():
     socket.setsockopt(zmq.IDENTITY, identity)
     socket.connect(f"tcp://{args.controller_ip}:{args.controller_port}")
 
-    # Register with controller
     socket.send_json({"type": "register"})
 
     kl_threshold = env_config.get("kl_threshold", 0.1)
     old_logits = None
 
     while True:
-        _, _, msg = socket.recv_multipart()
+        parts = socket.recv_multipart()
+        if len(parts) != 3:
+            print(f"[Worker] Invalid multipart length: {len(parts)}", file=sys.stderr)
+            continue
+        _, _, msg = parts
+
         payload = json.loads(msg.decode())
 
         if payload["type"] == "reset":
             obs = env.reset()
-            socket.send_json({"type": "response", "obs": obs})
+            socket.send_json({
+                "type": "response",
+                "obs": obs.tolist()  # make JSON serializable
+            })
 
         elif payload["type"] == "step":
-            if "agent_serialized" in payload:
+            if agent is None and "agent_serialized" in payload:
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
+                print("[Worker] Agent deserialized.", file=sys.stderr)
+                sys.stderr.flush()
 
             if agent is None:
-                raise ValueError("Agent not set and no serialized agent provided.")
+                raise ValueError("Agent is not initialized and was not provided.")
 
             weights = payload["agent_weights"]
             deserialize_weights(agent, weights)
-            weights = payload["agent_weights"]
-            deserialize_weights(agent, weights)
 
-            # Run inference locally
             obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
             logits = agent(obs_tensor)
 
-            # KL divergence check (AAPS)
             if old_logits is not None:
                 kl = compute_kl(old_logits.detach(), logits.detach()).item()
                 if kl > kl_threshold:
-                    # resend weight request could be inserted here if async
                     deserialize_weights(agent, weights)  # force re-sync
             old_logits = logits.detach()
 
             action = torch.argmax(logits, dim=-1).item()
             obs_next, reward, done, info = env.step(action)
+
             response = {
                 "type": "response",
-                "obs": obs_next,
+                "obs": obs_next.tolist(),
                 "reward": reward,
                 "done": done,
                 "info": info
