@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clusterenv"
+version = "0.1.0"
+description = "Learner-agnostic distributed RL environment manager"
+authors = [
+    { name="Rodney Lafuente-Mercado" }
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+dependencies = [
+    "gymnasium",
+    "torch",
+    "pyzmq"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/your-org/clusterenv"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
