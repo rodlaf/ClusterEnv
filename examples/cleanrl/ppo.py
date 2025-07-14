@@ -29,8 +29,9 @@ class Args:
     env_id: str = "CartPole-v1"
     total_timesteps: int = 500000
     learning_rate: float = 2.5e-4
-    num_envs: int = 4
     num_steps: int = 128
+    envs_per_node: int = 4
+    num_nodes: int = 2
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -74,7 +75,9 @@ class Agent(nn.Module):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    args.batch_size = int(args.num_envs * args.num_steps)
+
+    num_envs = args.num_nodes * args.envs_per_node
+    args.batch_size = int(num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
 
@@ -105,15 +108,15 @@ if __name__ == "__main__":
         env_config={
             "type": "gymnasium", 
             "env_name": args.env_id, 
-            "envs_per_node": args.num_envs
+            "envs_per_node": args.envs_per_node
         },
         config=SlurmConfig(
             job_name=run_name,
             time_limit="01:00:00",
-            nodes=2,
+            nodes=args.num_nodes,
             gpus_per_node=0,
             partition="normal", # replace with partition information
-            # gpu_type="gpu:volta" # "
+            # gpu_type="gpu:volta"
         )
     )
     obs_space, action_space = envs.launch()
@@ -131,19 +134,19 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
-    obs = torch.zeros((args.num_steps, args.num_envs, *obs_shape)).to(device)
-    actions = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    obs = torch.zeros((args.num_steps, num_envs, *obs_shape)).to(device)
+    actions = torch.zeros((args.num_steps, num_envs)).to(device)
+    logprobs = torch.zeros((args.num_steps, num_envs)).to(device)
+    rewards = torch.zeros((args.num_steps, num_envs)).to(device)
+    dones = torch.zeros((args.num_steps, num_envs)).to(device)
+    values = torch.zeros((args.num_steps, num_envs)).to(device)
 
     global_step = 0
     start_time = time.time()
     next_obs = torch.tensor(envs.reset()).float().to(device) # envs.reset()
     print("next_obs.shape:", next_obs.shape)
     print(f"next_obs: {next_obs}")
-    next_done = torch.zeros(args.num_envs).to(device)
+    next_done = torch.zeros(num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
         if args.anneal_lr:
@@ -152,7 +155,7 @@ if __name__ == "__main__":
             optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, args.num_steps):
-            global_step += args.num_envs
+            global_step += num_envs
             obs[step] = next_obs
             dones[step] = next_done
             with torch.no_grad():

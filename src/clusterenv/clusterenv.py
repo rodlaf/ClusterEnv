@@ -24,6 +24,8 @@ class ClusterEnv:
         self.worker_ready = set()
         self.agent_sent = False
 
+        self.serialized_agent = None
+
         atexit.register(self._cleanup)
 
     def _cleanup(self):
@@ -97,12 +99,8 @@ class ClusterEnv:
         return self._gather("reset")
 
     def step(self, agent_input: torch.nn.Module):
-        if not self.agent:
-            self.agent = agent_input
+        if not self.serialized_agent:
             self.serialized_agent = cloudpickle.dumps(agent_input)
-        else:
-            if self.agent != agent_input:
-                raise ValueError("Agent must be consistent each call to step().")
 
         if not self.agent_sent:
             self.agent_sent = True
