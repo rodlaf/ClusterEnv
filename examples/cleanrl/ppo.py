@@ -63,10 +63,7 @@ class Agent(nn.Module):
             nn.Linear(64, action_dim)
         )
 
-    def get_value(self, x):
-        return self.critic(x)
-
-    def get_action_and_value(self, x, action=None):
+    def forward(self, x, action=None):
         logits = self.actor(x)
         probs = Categorical(logits=logits)
         if action is None:
@@ -130,7 +127,7 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("Unsupported action space type")
 
-    agent = Agent(obs_dim, act_dim)
+    agent: nn.Module = Agent(obs_dim, act_dim)
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -143,7 +140,7 @@ if __name__ == "__main__":
 
     global_step = 0
     start_time = time.time()
-    next_obs = torch.tensor(envs.reset()).float().to(device) # envs.reset()
+    next_obs = torch.tensor(envs.reset()).float().to(device) # ClusterEnv
     print("next_obs.shape:", next_obs.shape)
     print(f"next_obs: {next_obs}")
     next_done = torch.zeros(num_envs).to(device)
@@ -158,16 +155,17 @@ if __name__ == "__main__":
             global_step += num_envs
             obs[step] = next_obs
             dones[step] = next_done
-            with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
-                values[step] = value.flatten()
-            actions[step] = action
-            logprobs[step] = logprob
 
-            next_obs_arr, reward_arr, done_arr, _ = envs.step(agent) # envs.step()
+            # Inference + stepping happens on the worker nodes
+            next_obs_arr, reward_arr, done_arr, logprob_arr, value_arr, action_arr = envs.step(agent) # ClusterEnv
+
             next_done = torch.tensor(done_arr).to(device)
             rewards[step] = torch.tensor(reward_arr).to(device).view(-1)
             next_obs = torch.tensor(next_obs_arr).float().to(device)
+
+            logprobs[step] = torch.tensor(logprob_arr).to(device)
+            values[step] = torch.tensor(value_arr).to(device)
+            actions[step] = torch.tensor(action_arr).to(device)
 
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)

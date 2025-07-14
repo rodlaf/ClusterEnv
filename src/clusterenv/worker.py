@@ -93,28 +93,32 @@ def main():
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
                 print("[Worker] Agent deserialized", file=sys.stderr)
 
+            if agent is None:
+                raise ValueError("Agent is not initialized and was not provided.")
+
             weights = payload["agent_weights"]
             print("[Worker] Loading weights...", file=sys.stderr)
             deserialize_weights(agent, weights)
             print("[Worker] Weights loaded", file=sys.stderr)
 
-            # Before inference
             print("[Worker] Running inference...", file=sys.stderr)
             obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
-            logits = agent(obs_tensor)
+            action, logprob, _, value = agent(obs_tensor)
             print("[Worker] Inference done", file=sys.stderr)
 
-            if agent is None:
-                raise ValueError("Agent is not initialized and was not provided.")
-
             if old_logits is not None:
-                kl = compute_kl(old_logits.detach(), logits.detach()).item()
-                if kl > kl_threshold:
-                    deserialize_weights(agent, weights)
-            old_logits = logits.detach()
+                with torch.no_grad():
+                    logits = agent.actor(obs_tensor)
+                    kl = compute_kl(old_logits.detach(), logits.detach()).item()
+                    if kl > kl_threshold:
+                        deserialize_weights(agent, weights)
+                old_logits = logits.detach()
+            else:
+                old_logits = agent.actor(obs_tensor).detach()
 
-            actions = logits.argmax(dim=-1).cpu().numpy()
-            obs_next, reward, terminated, truncated, infos = env.step(actions)
+            action_np = action.cpu().numpy().squeeze(0)
+            print(f"[Worker] action_np shape: {action_np.shape}", file=sys.stderr)
+            obs_next, reward, terminated, truncated, infos = env.step(action_np)
 
             response = {
                 "type": "response",
@@ -122,8 +126,13 @@ def main():
                 "reward": reward.tolist(),
                 "done": (terminated | truncated).tolist(),
                 "info": infos,
+                "logprob": logprob.cpu().tolist(),
+                "value": value.cpu().squeeze().tolist(),
+                "action": action_np.tolist(),
             }
+
             socket.send_multipart([
+                socket.getsockopt(zmq.IDENTITY),
                 b"",
                 json.dumps(response).encode()
             ])
