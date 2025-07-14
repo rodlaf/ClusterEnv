@@ -129,6 +129,8 @@ class ClusterEnv:
         return self._gather("step")
 
     def _gather(self, mode):
+        print(f"[ClusterEnv] Gathering responses for {mode}...", flush=True)
+
         obs, rews, dones, infos = [], [], [], []
         poller = zmq.Poller()
         poller.register(self.socket, zmq.POLLIN)
@@ -146,14 +148,15 @@ class ClusterEnv:
 
                     if msg["type"] == "response":
                         remaining.remove(identity)
-                        obs.extend(msg["obs"])
+                        
 
                         if mode == "step":
+                            obs.extend(msg["obs"])
                             rews.append(msg["reward"])
                             dones.append(msg["done"])
                             infos.append(msg.get("info", {}))
 
-        if mode == "reset":
-            return obs
-        else:
-            return obs, rews, dones, infos
+                        if mode == "reset":
+                            return obs
+                        else:
+                            return obs, rews, dones, infos

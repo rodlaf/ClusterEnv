@@ -76,27 +76,36 @@ def main():
 
         if payload["type"] == "reset":
             obs = env.reset()[0]
-            socket.send_json({
-                "type": "response",
-                "obs": obs.tolist()  # make JSON serializable
-            })
+            socket.send_multipart([
+                b"",
+                json.dumps({
+                    "type": "response",
+                    "obs": obs.tolist()
+                }).encode()
+            ])
             print("[Worker] Sent reset response", file=sys.stderr)
             sys.stderr.flush()
 
         elif payload["type"] == "step":
-            if agent is None and "agent_serialized" in payload:
+            print("[Worker] Received step payload", file=sys.stderr)
+            if "agent_serialized" in payload:
+                print("[Worker] Deserializing agent...", file=sys.stderr)
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
-                print("[Worker] Agent deserialized.", file=sys.stderr)
-                sys.stderr.flush()
+                print("[Worker] Agent deserialized", file=sys.stderr)
+
+            weights = payload["agent_weights"]
+            print("[Worker] Loading weights...", file=sys.stderr)
+            deserialize_weights(agent, weights)
+            print("[Worker] Weights loaded", file=sys.stderr)
+
+            # Before inference
+            print("[Worker] Running inference...", file=sys.stderr)
+            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+            logits = agent(obs_tensor)
+            print("[Worker] Inference done", file=sys.stderr)
 
             if agent is None:
                 raise ValueError("Agent is not initialized and was not provided.")
-
-            weights = payload["agent_weights"]
-            deserialize_weights(agent, weights)
-
-            obs_tensor = torch.tensor(obs, dtype=torch.float32)
-            logits = agent(obs_tensor)
 
             if old_logits is not None:
                 kl = compute_kl(old_logits.detach(), logits.detach()).item()
@@ -114,7 +123,10 @@ def main():
                 "done": (terminated | truncated).tolist(),
                 "info": infos,
             }
-            socket.send_json(response)
+            socket.send_multipart([
+                b"",
+                json.dumps(response).encode()
+            ])
             obs = obs_next
             print("[Worker] Sent step response", file=sys.stderr)
             sys.stderr.flush()
