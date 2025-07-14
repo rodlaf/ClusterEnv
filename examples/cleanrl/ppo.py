@@ -162,10 +162,11 @@ if __name__ == "__main__":
             next_done = torch.tensor(done_arr).to(device)
             rewards[step] = torch.tensor(reward_arr).to(device).view(-1)
             next_obs = torch.tensor(next_obs_arr).float().to(device)
-
-            logprobs[step] = torch.tensor(logprob_arr).to(device)
-            values[step] = torch.tensor(value_arr).to(device)
-            actions[step] = torch.tensor(action_arr).to(device)
+             
+            # must flatten given (num_nodes, envs_per_node) shape
+            logprobs[step] = torch.tensor(logprob_arr).to(device).view(-1)
+            values[step] = torch.tensor(value_arr).to(device).view(-1)
+            actions[step] = torch.tensor(action_arr).to(device).view(-1)
 
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
