@@ -52,7 +52,10 @@ def main():
     print(f"[Worker] Connecting to: {connect_addr}", file=sys.stderr)
     sys.stderr.flush()
 
-    socket.send_json({"type": "register"})
+    socket.send_multipart([
+        b"",  # empty delimiter frame required for ROUTER socket
+        json.dumps({"type": "register"}).encode()
+    ])
     print("[Worker] Sent registration", file=sys.stderr)
     sys.stderr.flush()
 

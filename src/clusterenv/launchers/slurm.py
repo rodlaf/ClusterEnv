@@ -29,11 +29,11 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
     gpus_per_node = slurm_config.gpus_per_node
     gpu_type = slurm_config.gpu_type
 
+##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={job_name}
 #SBATCH --exclusive
 #SBATCH --nodes={n_nodes}
-#SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
 #SBATCH --partition={partition}
 #SBATCH --time={time_limit}
 #SBATCH --output=logs/{job_name}_%j.out

@@ -110,9 +110,9 @@ if __name__ == "__main__":
             job_name=run_name,
             time_limit="01:00:00",
             nodes=2,
-            gpus_per_node=1,
-            partition="gaia", # replace with partition information
-            gpu_type="gpu:volta" # "
+            gpus_per_node=0,
+            partition="normal", # replace with partition information
+            # gpu_type="gpu:volta" # "
         )
     )
     obs_shape, action_dim = envs.launch()

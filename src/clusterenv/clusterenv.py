@@ -131,7 +131,9 @@ class ClusterEnv:
             socks = dict(poller.poll(1000))
             if self.socket in socks:
                 parts = self.socket.recv_multipart()
-                if len(parts) == 3:
+                if len(parts) >= 3:
+                    print(f"[ClusterEnv] Received multipart: {[p.decode(errors='ignore') for p in parts]}")
+
                     identity, _, message = parts
                     msg = json.loads(message.decode())
 
