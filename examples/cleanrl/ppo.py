@@ -100,6 +100,9 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # Initialize ClusterEnv
+    def make_agent(envs):
+        return Agent(envs.observation_space.shape[0], envs.action_space.n)
+    
     envs = ClusterEnv(
         env_config={"type": "gymnasium", "env_name": args.env_id, "n_parallel": args.num_envs},
         config=SlurmConfig(
@@ -109,14 +112,14 @@ if __name__ == "__main__":
             gpus_per_node=1,
             partition="gaia", # replace with partition information
             gpu_type="gpu:volta"
-        )
+        ),
     )
     envs.launch()
 
     obs_shape = envs.observation_space.shape[0]
     action_dim = envs.action_space.n
 
-    agent = Agent(obs_shape, action_dim).to(device)
+    agent = make_agent(envs)
     envs.set_agent(agent)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 

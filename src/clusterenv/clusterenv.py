@@ -4,6 +4,11 @@ import json
 import uuid
 import atexit
 import os
+import cloudpickle
+import torch
+import base64
+
+from clusterenv.launchers.slurm import launch_slurm_job
 
 
 class ClusterEnv:
@@ -24,6 +29,9 @@ class ClusterEnv:
     
         atexit.register(self._cleanup)
 
+    def set_agent(self, agent: torch.nn.Module):
+        self.serialized_agent = cloudpickle.dumps(agent)
+
     def _cleanup(self):
         self.socket.close()
 
@@ -33,21 +41,20 @@ class ClusterEnv:
         """
         print("[ClusterEnv] Launching workers via SLURM...")
 
-        from clusterenv.launchers.slurm import launch_slurm_job
-
-        # Write env config to a shared location
-        shared_dir = os.path.expanduser("~/clusterenv_shared")  # Ensure this exists
+        shared_dir = os.path.expanduser("~/clusterenv_shared")
         os.makedirs(shared_dir, exist_ok=True)
+
+        # Serialize env config + agent
+        config = {
+            "env_config": self.env_config,
+        }
 
         config_path = os.path.join(shared_dir, f"config_{uuid.uuid4().hex}.json")
         with open(config_path, "w") as f:
-            json.dump(self.env_config, f)
+            json.dump(config, f)
 
         launch_slurm_job(self.slurm_config, config_path)
 
-        # Wait for workers to connect
-        print("[ClusterEnv] Waiting for workers to connect...")
-        self._wait_for_worker_connections(expected=self.env_config.get("n_parallel", 1))
 
     def _wait_for_worker_connections(self, expected):
         poller = zmq.Poller()
@@ -71,12 +78,14 @@ class ClusterEnv:
 
         return self._gather("observation")
 
-    def step(self, agent):
-        """
-        Send the agent to workers to compute actions and step environments.
-        """
-        # Get agent state_dict
-        agent_state = agent.state_dict()
+    def step(self, agent_input):
+        if not hasattr(self, "agent_sent"):
+            self.agent_sent = True
+            agent_payload = self.serialized_agent.hex()
+        else:
+            agent_payload = None
+
+        agent_state = agent_input.state_dict()
         agent_weights = {k: v.cpu().numpy().tolist() for k, v in agent_state.items()}
 
         for identity in self.workers:
@@ -84,9 +93,9 @@ class ClusterEnv:
                 "type": "step",
                 "agent_weights": agent_weights,
             }
+            if agent_payload:
+                payload["agent_serialized"] = agent_payload
             self.socket.send_multipart([identity, b"", json.dumps(payload).encode()])
-
-        return self._gather("step")
 
     def _gather(self, mode):
         """

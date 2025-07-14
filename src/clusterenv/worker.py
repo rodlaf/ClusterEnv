@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import importlib
+import cloudpickle
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -36,10 +37,6 @@ def main():
     env = load_env(env_config)
     obs = env.reset()
 
-    # Get agent class from env (assumes it's defined in env module)
-    AgentClass = env_config.get("agent_class", "Agent")  # fallback name
-    agent = getattr(env, AgentClass)()  # must have act(obs) and state_dict()
-
     ctx = zmq.Context()
     socket = ctx.socket(zmq.DEALER)
     identity = f"worker-{np.random.randint(10000)}".encode()
@@ -61,6 +58,14 @@ def main():
             socket.send_json({"type": "response", "obs": obs})
 
         elif payload["type"] == "step":
+            if "agent_serialized" in payload:
+                agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
+
+            if agent is None:
+                raise ValueError("Agent not set and no serialized agent provided.")
+
+            weights = payload["agent_weights"]
+            deserialize_weights(agent, weights)
             weights = payload["agent_weights"]
             deserialize_weights(agent, weights)
 
