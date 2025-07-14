@@ -40,9 +40,7 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
 #SBATCH --time={time_limit}
 #SBATCH --output=logs/{job_name}_%j.out
 #SBATCH --error=logs/{job_name}_%j.err
-
-module load python/3.8  # adjust as needed for your cluster
-source ~/envs/clusterenv/bin/activate  # or replace with your env setup
+#SBATCH --export=ALL
 
 srun python -m clusterenv.worker \\
     --config_path {env_config_path} \\

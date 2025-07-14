@@ -1,13 +1,9 @@
 from clusterenv.launchers import SlurmConfig
 import zmq
 import json
-import socket
-import time
-import subprocess
 import uuid
-import os
 import atexit
-
+import os
 
 
 class ClusterEnv:
@@ -40,7 +36,10 @@ class ClusterEnv:
         from clusterenv.launchers.slurm import launch_slurm_job
 
         # Write env config to a shared location
-        config_path = f"/tmp/clusterenv_config_{self.uuid}.json"
+        shared_dir = os.path.expanduser("~/clusterenv_shared")  # Ensure this exists
+        os.makedirs(shared_dir, exist_ok=True)
+
+        config_path = os.path.join(shared_dir, f"config_{uuid.uuid4().hex}.json")
         with open(config_path, "w") as f:
             json.dump(self.env_config, f)
 
