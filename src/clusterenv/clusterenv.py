@@ -140,23 +140,29 @@ class ClusterEnv:
             socks = dict(poller.poll(1000))
             if self.socket in socks:
                 parts = self.socket.recv_multipart()
-                if len(parts) >= 3:
-                    print(f"[ClusterEnv] Received multipart: {[p.decode(errors='ignore') for p in parts]}")
+                if len(parts) != 3:
+                    print(f"[ClusterEnv] Unexpected multipart length: {len(parts)} — skipping", flush=True)
+                    continue
 
-                    identity, _, message = parts
-                    msg = json.loads(message.decode())
+                identity, _, message = parts
+                msg = json.loads(message.decode())
 
-                    if msg["type"] == "response":
+                if msg["type"] == "response":
+                    if identity in remaining:
                         remaining.remove(identity)
-                        
+                    else:
+                        print(f"[ClusterEnv] Warning: duplicate response from {identity.decode()}", flush=True)
+                        continue
 
-                        if mode == "step":
-                            obs.extend(msg["obs"])
-                            rews.append(msg["reward"])
-                            dones.append(msg["done"])
-                            infos.append(msg.get("info", {}))
+                    print(f"[ClusterEnv] Got response from {identity.decode()} with {len(msg['obs'])} obs", flush=True)
 
-                        if mode == "reset":
-                            return obs
-                        else:
-                            return obs, rews, dones, infos
+                    obs.extend(msg["obs"])
+                    if mode == "step":
+                        rews.extend(msg["reward"])
+                        dones.extend(msg["done"])
+                        infos.extend(msg.get("info", {}))
+
+        if mode == "reset":
+            return obs
+        else:
+            return obs, rews, dones, infos

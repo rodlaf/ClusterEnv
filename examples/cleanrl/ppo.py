@@ -141,6 +141,8 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     next_obs = torch.tensor(envs.reset()).float().to(device) # envs.reset()
+    print("next_obs.shape:", next_obs.shape)
+    print(f"next_obs: {next_obs}")
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
