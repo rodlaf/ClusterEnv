@@ -132,7 +132,6 @@ def main():
             }
 
             socket.send_multipart([
-                socket.getsockopt(zmq.IDENTITY),
                 b"",
                 json.dumps(response).encode()
             ])
