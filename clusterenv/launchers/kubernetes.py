@@ -1,3 +1,3 @@
-
 class KubernetesConfig():
-    pass
+    def __init__():
+        raise NotImplementedError
