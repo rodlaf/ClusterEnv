@@ -31,9 +31,9 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
     gpu_type = slurm_config.gpu_type
     debug = slurm_config.debug
 
-##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={job_name}
+##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
 #SBATCH --ntasks={n_nodes}
 #SBATCH --ntasks-per-node=1
 #SBATCH --exclusive
@@ -43,6 +43,8 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
 #SBATCH --output=logs/{job_name}_%j.out
 #SBATCH --error=logs/{job_name}_%j.err
 #SBATCH --export=ALL
+
+module load cuda
 
 srun python -m clusterenv.worker \
     --config_path {env_config_path} \

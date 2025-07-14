@@ -39,6 +39,8 @@ def main():
     args = parse_args()
     debug = args.debug
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     with open(args.config_path, "r") as f:
         env_config = json.load(f)
         if debug:
@@ -106,6 +108,7 @@ def main():
                 if debug:
                     print("[Worker] Deserializing agent...", file=sys.stderr)
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
+                agent.to(device)
                 if debug:
                     print("[Worker] Agent deserialized", file=sys.stderr)
 
@@ -119,7 +122,7 @@ def main():
             if debug:
                 print("[Worker] Weights loaded", file=sys.stderr)
                 print("[Worker] Running inference...", file=sys.stderr)
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
             action, logprob, _, value = agent(obs_tensor)
             if debug:
                 print("[Worker] Inference done", file=sys.stderr)

@@ -112,9 +112,9 @@ if __name__ == "__main__":
             time_limit="01:00:00",
             nodes=args.num_nodes,
             gpus_per_node=0,
-            partition="normal", # replace with partition information
+            partition="gaia", # replace with partition information
             debug=False,
-            # gpu_type="gpu:volta"
+            gpu_type="gpu:volta"
         )
     )
     obs_space, action_space = envs.launch()
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("Unsupported action space type")
 
-    agent: nn.Module = Agent(obs_dim, act_dim)
+    agent: nn.Module = Agent(obs_dim, act_dim).to(device)
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -179,7 +179,7 @@ if __name__ == "__main__":
 
 
         with torch.no_grad():
-            _, _, _, next_value = agent(next_obs)
+            _, _, _, next_value = agent(next_obs.to(device))
             next_value = next_value.reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
