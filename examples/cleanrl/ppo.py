@@ -106,7 +106,9 @@ if __name__ == "__main__":
             job_name=run_name,
             time_limit="01:00:00",
             nodes=1,
-            gpus_per_node=1
+            gpus_per_node=1,
+            partition="gaia", # replace with partition information
+            gpu_type="gpu:volta"
         )
     )
     envs.launch()

@@ -6,6 +6,9 @@ import time
 import subprocess
 import uuid
 import os
+import atexit
+
+
 
 class ClusterEnv:
     def __init__(self, env_config: dict, config: SlurmConfig):
@@ -22,6 +25,11 @@ class ClusterEnv:
         self.observations = dict()
         self.rewards = dict()
         self.dones = dict()
+    
+        atexit.register(self._cleanup)
+
+    def _cleanup(self):
+        self.socket.close()
 
     def launch(self):
         """
@@ -107,3 +115,4 @@ class ClusterEnv:
             return obs
         else:
             return obs, rews, dones, infos
+
