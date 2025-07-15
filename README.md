@@ -1,61 +1,66 @@
 # ClusterEnv
 
-ClusterEnv is an open-source framework designed to distribute reinforcement learning (RL) environment execution across Slurm-managed high-performance computing clusters. It enables parallelization of both lightweight environments (e.g., CartPole) and computationally intensive physics-based simulations (e.g., Mujoco), optimizing training efficiency on HPC infrastructure.
+ClusterEnv is a lightweight interface for distributed reinforcement learning (RL) environment execution on Slurm-managed clusters. It decouples environment simulation from training logic, enabling scalable rollout collection without adopting a monolithic framework. ClusterEnv mirrors the Gymnasium API and introduces two core components: the **DETACH** architecture and **Adaptive Actor Policy Synchronization (AAPS)**.
 
-## Getting Started
+## Core Concepts
 
-Prerequisites: 
+**DETACH (Distributed Environment execution with Training Abstraction and Centralized Head)** separates rollout collection from the training loop. Remote workers run only `reset()` and `step()` methods, while the learner remains centralized.
 
-Slurm workload manager installed on your cluster.
-SSH access to submit jobs via sbatch.
+**AAPS (Adaptive Actor Policy Synchronization)** addresses policy staleness by triggering weight updates only when divergence exceeds a user-defined KL threshold. This minimizes unnecessary communication while keeping behavior on-policy enough for efficient training.
 
-Installation: 
+## Installation
+
 ```bash
 git clone https://github.com/rodlaf/ClusterEnv.git
-cd clusterenv
+cd ClusterEnv
 pip install -r requirements.txt
 ```
 
-Basic Usage:
+## Requirements
+
+* Slurm with `sbatch` submission access
+* SSH access to allocated cluster nodes
+* Python 3.8+
+* RL agent implementing `.act(obs)` and `.get_parameters()`
+
+## Basic Usage
+
 ```python
 from clusterenv import ClusterEnv, SlurmConfig
 
-# Define environment configuration
 env_config = {
-    "type": "MujocoAnt",
-    "n_parallel": 50,
-    "slurm_partition": "gpu"
+    "type": "gymnasium",           # or "MujocoAnt", etc.
+    "env_name": "LunarLander-v2",
+    "kl_threshold": 0.05,
+    "envs_per_node": 64
 }
 
-# Define SLURM job configuration
-config = SlurmConfig(
-    job_name="mujoco_training",
-    time_limit="02:00:00",
+slurm_cfg = SlurmConfig(
+    job_name="ppo_lander",
     nodes=4,
     gpus_per_node=2,
-    cpus_per_task=4,   # Optional
-    mem_per_node="32G" # Optional
+    partition="gpu",
+    time_limit="02:00:00"
 )
 
-# Initialize and launch distributed environment
-env = ClusterEnv(env_config, config)
-env.launch()  # Submits the SLURM job internally
-```
+env = ClusterEnv(env_config, slurm_cfg)
+env.launch()
 
-You can then interact with the environment from your training loop as usual:
-
-```python
 obs = env.reset()
 for _ in range(1000):
-    action = agent.act(obs)
-    obs, reward, done, info = env.step(action)
+    obs, reward, done, info = env.step(agent)
 ```
+
+Policy synchronization via AAPS is handled internally. Agents pull updated weights only when their local policy drifts too far from the central learner, as measured by KL divergence.
 
 ## Custom Environments
 
-Add your environment to clusterenv/envs/ with a .yaml config file.
-Use the CLI to register it:
+To add a custom environment:
 
-```python
-python clusterenv/register_env.py --name MyEnv --path /path/to/my_env.py
+1. Place your environment code in `clusterenv/envs/`
+2. Register it:
+
+```bash
+python clusterenv/register_env.py --name MyEnv --path /absolute/path/to/my_env.py
 ```
+
