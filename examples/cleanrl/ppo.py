@@ -26,12 +26,15 @@ class Args:
     wandb_entity: str = None
     capture_video: bool = False
 
-    env_id: str = "LunarLander-v2"
+    # env_id: str = "LunarLander-v2"
+    env_id: str = "CartPole-v1"
+
+    kl_threshold: float = 0.1
     total_timesteps: int = 50000000
     learning_rate: float = 5e-4
     num_steps: int = 128
-    envs_per_node: int = 512
-    num_nodes: int = 4
+    envs_per_node: int = 32
+    num_nodes: int = 2
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -169,6 +172,7 @@ if __name__ == "__main__":
             actions[step] = torch.tensor(action_arr).to(device).view(-1)
 
             for i, info in enumerate(info_arr):
+                # Log episodic return/length
                 final_infos = info.get("final_info", [])
                 for j, fi in enumerate(final_infos):
                     if isinstance(fi, dict) and "episode" in fi:
@@ -178,6 +182,11 @@ if __name__ == "__main__":
                         writer.add_scalar("charts/episodic_return", ep_return, global_step)
                         writer.add_scalar("charts/episodic_length", ep_length, global_step)
 
+                # Log sync count (once per worker info)
+                if "sync_count" in info:
+                    sync_count = info["sync_count"]
+                    print(f"[Sync] global_step={global_step}, sync_count={sync_count}")
+                    writer.add_scalar("charts/weight_syncs", sync_count, global_step)
 
         with torch.no_grad():
             _, _, _, next_value = agent(next_obs.to(device))

@@ -39,6 +39,8 @@ def main():
     args = parse_args()
     debug = args.debug
 
+    sync_count = 0
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     with open(args.config_path, "r") as f:
@@ -106,37 +108,46 @@ def main():
         elif payload["type"] == "step":
             if debug:
                 print("[Worker] Received step payload", file=sys.stderr)
-            if "agent_serialized" in payload:
+
+            # Deserialize agent ONCE if needed
+            if "agent_serialized" in payload and agent is None:
                 if debug:
                     print("[Worker] Deserializing agent...", file=sys.stderr)
                 agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
                 agent.to(device)
+                agent.eval()
                 if debug:
                     print("[Worker] Agent deserialized", file=sys.stderr)
 
             if agent is None:
                 raise ValueError("Agent is not initialized and was not provided.")
 
+            # Always update candidate weights
             weights = payload["agent_weights"]
-            if debug:
-                print("[Worker] Loading weights...", file=sys.stderr)
-            deserialize_weights(agent, weights)
-            if debug:
-                print("[Worker] Weights loaded", file=sys.stderr)
-                print("[Worker] Running inference...", file=sys.stderr)
-            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-            action, logprob, _, value = agent(obs_tensor)
-            if debug:
-                print("[Worker] Inference done", file=sys.stderr)
 
+            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+
+            # Handle KL-based sync
             if old_logits is not None:
                 with torch.no_grad():
-                    logits = agent.actor(obs_tensor)
-                    kl = compute_kl(old_logits.detach(), logits.detach()).item()
-                    if kl > kl_threshold:
-                        deserialize_weights(agent, weights)
-                old_logits = logits.detach()
+                    # Save current logits
+                    new_agent = agent
+                    deserialize_weights(new_agent, weights)
+                    new_logits = new_agent.actor(obs_tensor)
+                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+
+                if kl > kl_threshold:
+                    deserialize_weights(agent, weights)
+                    sync_count += 1
+                    if debug:
+                        print(f"[Worker] KL sync triggered. sync_count={sync_count}", file=sys.stderr)
             else:
+                # First-time sync
+                deserialize_weights(agent, weights)
+
+            # Inference
+            with torch.no_grad():
+                action, logprob, _, value = agent(obs_tensor)
                 old_logits = agent.actor(obs_tensor).detach()
 
             action_np = action.cpu().numpy().squeeze(0)
@@ -172,7 +183,10 @@ def main():
                 "obs": obs_next.tolist(),
                 "reward": reward.tolist(),
                 "done": (terminated | truncated).tolist(),
-                "info": {"final_info": final_info},
+                "info": {
+                    "final_info": final_info,
+                    "sync_count": sync_count,
+                },
                 "logprob": logprob.cpu().tolist(),
                 "value": value.cpu().squeeze().tolist(),
                 "action": action_np.tolist(),
@@ -186,6 +200,7 @@ def main():
             if debug:
                 print("[Worker] Sent step response", file=sys.stderr)
             sys.stderr.flush()
+
 
 
 if __name__ == "__main__":
