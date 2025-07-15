@@ -29,7 +29,7 @@ pip install -r requirements.txt
 from clusterenv import ClusterEnv, SlurmConfig
 
 env_config = {
-    "type": "gymnasium",           # or "MujocoAnt", etc.
+    "type": "gymnasium",
     "env_name": "LunarLander-v2",
     "kl_threshold": 0.05,
     "envs_per_node": 64
