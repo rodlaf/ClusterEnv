@@ -30,12 +30,12 @@ class Args:
     total_timesteps: int = 50000000
     learning_rate: float = 5e-4
     num_steps: int = 128
-    envs_per_node: int = 32
+    envs_per_node: int = 512
     num_nodes: int = 4
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
-    num_minibatches: int = 16
+    num_minibatches: int = 4
     update_epochs: int = 30
     norm_adv: bool = True
     clip_coef: float = 0.2
@@ -105,7 +105,8 @@ if __name__ == "__main__":
         env_config={
             "type": "gymnasium", 
             "env_name": args.env_id, 
-            "envs_per_node": args.envs_per_node
+            "envs_per_node": args.envs_per_node,
+            "seed": 1
         },
         config=SlurmConfig(
             job_name=run_name,

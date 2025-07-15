@@ -53,8 +53,10 @@ def main():
 
     ctx = zmq.Context()
     socket = ctx.socket(zmq.DEALER)
+
     identity = f"worker-{np.random.randint(10000)}".encode()
     socket.setsockopt(zmq.IDENTITY, identity)
+
     connect_addr = f"tcp://{args.controller_ip}:{args.controller_port}"
     socket.connect(connect_addr)
 
