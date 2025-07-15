@@ -21,7 +21,7 @@ pip install -r requirements.txt
 * Slurm with `sbatch` submission access
 * SSH access to allocated cluster nodes
 * Python 3.8+
-* RL agent implementing `.act(obs)` and `.get_parameters()`
+* RL agent that is instance of `torch.nn.Module`
 
 ## Basic Usage
 
