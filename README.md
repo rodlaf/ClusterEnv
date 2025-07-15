@@ -52,15 +52,3 @@ for _ in range(1000):
 ```
 
 Policy synchronization via AAPS is handled internally. Agents pull updated weights only when their local policy drifts too far from the central learner, as measured by KL divergence.
-
-## Custom Environments
-
-To add a custom environment:
-
-1. Place your environment code in `clusterenv/envs/`
-2. Register it:
-
-```bash
-python clusterenv/register_env.py --name MyEnv --path /absolute/path/to/my_env.py
-```
-
