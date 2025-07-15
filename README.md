@@ -13,7 +13,7 @@ ClusterEnv is a lightweight interface for distributed reinforcement learning (RL
 ```bash
 git clone https://github.com/rodlaf/ClusterEnv.git
 cd ClusterEnv
-pip install -r requirements.txt
+pip install .
 ```
 
 ## Requirements
