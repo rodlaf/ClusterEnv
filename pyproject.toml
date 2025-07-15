@@ -16,7 +16,8 @@ dependencies = [
     "gymnasium",
     "torch",
     "pyzmq",
-    "cloudpickle"
+    "cloudpickle",
+    "gymnasium[box2d]"
 ]
 
 [project.urls]

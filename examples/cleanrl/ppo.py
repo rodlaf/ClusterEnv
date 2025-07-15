@@ -26,7 +26,7 @@ class Args:
     wandb_entity: str = None
     capture_video: bool = False
 
-    env_id: str = "CartPole-v1"
+    env_id: str = "LunarLander-v2"
     total_timesteps: int = 50000000
     learning_rate: float = 5e-4
     num_steps: int = 128
