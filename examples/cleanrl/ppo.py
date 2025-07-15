@@ -26,15 +26,15 @@ class Args:
     wandb_entity: str = None
     capture_video: bool = False
 
-    # env_id: str = "LunarLander-v2"
-    env_id: str = "CartPole-v1"
+    env_id: str = "LunarLander-v2"
+    # env_id: str = "CartPole-v1"
 
-    kl_threshold: float = 0.1
-    total_timesteps: int = 50000000
+    kl_threshold: float = 0.1 # defines how often weight update must occur
+    total_timesteps: int = 5000000
     learning_rate: float = 5e-4
-    num_steps: int = 128
-    envs_per_node: int = 32
-    num_nodes: int = 2
+    num_steps: int = 1024
+    envs_per_node: int = 64
+    num_nodes: int = 4
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -107,6 +107,7 @@ if __name__ == "__main__":
     envs = ClusterEnv(
         env_config={
             "type": "gymnasium", 
+            "kl_threshold": args.kl_threshold,
             "env_name": args.env_id, 
             "envs_per_node": args.envs_per_node,
             "seed": 1
@@ -171,7 +172,7 @@ if __name__ == "__main__":
             values[step] = torch.tensor(value_arr).to(device).view(-1)
             actions[step] = torch.tensor(action_arr).to(device).view(-1)
 
-            for i, info in enumerate(info_arr):
+            for i, info in enumerate(info_arr):                
                 # Log episodic return/length
                 final_infos = info.get("final_info", [])
                 for j, fi in enumerate(final_infos):

@@ -75,7 +75,7 @@ def main():
         print("[Worker] Sent registration", file=sys.stderr)
         sys.stderr.flush()
 
-    kl_threshold = env_config.get("kl_threshold", 0.1)
+    kl_threshold = env_config.get("kl_threshold")
     old_logits = None
 
     while True:
@@ -122,38 +122,47 @@ def main():
             if agent is None:
                 raise ValueError("Agent is not initialized and was not provided.")
 
-            # Always update candidate weights
+            # === Get candidate weights from payload ===
             weights = payload["agent_weights"]
-
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
 
-            # Handle KL-based sync
+            # === Handle KL-based sync ===
             if old_logits is not None:
                 with torch.no_grad():
-                    # Save current logits
-                    new_agent = agent
-                    deserialize_weights(new_agent, weights)
-                    new_logits = new_agent.actor(obs_tensor)
-                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+                    current_logits = agent.actor(obs_tensor)
 
-                if kl > kl_threshold:
+                    # Save a copy of the current agent weights
+                    current_params = {k: v.clone() for k, v in agent.state_dict().items()}
                     deserialize_weights(agent, weights)
-                    sync_count += 1
-                    if debug:
-                        print(f"[Worker] KL sync triggered. sync_count={sync_count}", file=sys.stderr)
+                    new_logits = agent.actor(obs_tensor)
+                    kl = compute_kl(current_logits.detach(), new_logits.detach()).item()
+
+                    if kl > kl_threshold:
+                        sync_count += 1
+                        if debug:
+                            print(f"[Worker] KL sync triggered. sync_count={sync_count}", file=sys.stderr)
+                        # keep weights
+                    else:
+                        # restore old weights
+                        agent.load_state_dict(current_params) # TODO: performance improvement still on the table
+                        if debug:
+                            print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
             else:
                 # First-time sync
                 deserialize_weights(agent, weights)
+                sync_count += 1
+                if debug:
+                    print("[Worker] First-time sync", file=sys.stderr)
 
-            # Inference
+            # === Inference
             with torch.no_grad():
                 action, logprob, _, value = agent(obs_tensor)
                 old_logits = agent.actor(obs_tensor).detach()
 
+            # === Step environment
             action_np = action.cpu().numpy().squeeze(0)
             obs_next, reward, terminated, truncated, infos = env.step(action_np)
 
-            # === Track episodic rewards manually ===
             if 'episode_rewards' not in locals():
                 episode_rewards = [0.0] * env.num_envs
                 episode_lengths = [0] * env.num_envs
