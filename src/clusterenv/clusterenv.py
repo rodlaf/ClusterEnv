@@ -26,7 +26,7 @@ class ClusterEnv:
 
         self.serialized_agent = None
 
-        self.debug = config.debug  # <- add this line
+        self.debug = config.debug
 
         atexit.register(self._cleanup)
 
