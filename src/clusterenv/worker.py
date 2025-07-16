@@ -129,24 +129,25 @@ def main():
             # === Handle KL-based sync ===
             if old_logits is not None:
                 with torch.no_grad():
-                    current_logits = agent.actor(obs_tensor)
+                    # Step 1: Clone agent and load candidate weights 
+                    # TODO: leaving realized performance on the table; need pull-based architecture
+                    tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
+                    tmp_agent.to(device)
+                    tmp_agent.eval()
+                    deserialize_weights(tmp_agent, weights)
 
-                    # Save a copy of the current agent weights
-                    current_params = {k: v.clone() for k, v in agent.state_dict().items()}
+                    # Step 2: Compute KL
+                    new_logits = tmp_agent.actor(obs_tensor)
+                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+
+                if kl > kl_threshold:
                     deserialize_weights(agent, weights)
-                    new_logits = agent.actor(obs_tensor)
-                    kl = compute_kl(current_logits.detach(), new_logits.detach()).item()
-
-                    if kl > kl_threshold:
-                        sync_count += 1
-                        if debug:
-                            print(f"[Worker] KL sync triggered. sync_count={sync_count}", file=sys.stderr)
-                        # keep weights
-                    else:
-                        # restore old weights
-                        agent.load_state_dict(current_params) # TODO: performance improvement still on the table
-                        if debug:
-                            print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
+                    sync_count += 1
+                    if debug:
+                        print(f"[Worker] KL sync triggered (KL={kl:.4f}). sync_count={sync_count}", file=sys.stderr)
+                else:
+                    if debug:
+                        print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
             else:
                 # First-time sync
                 deserialize_weights(agent, weights)
@@ -209,6 +210,7 @@ def main():
             if debug:
                 print("[Worker] Sent step response", file=sys.stderr)
             sys.stderr.flush()
+
 
 
 

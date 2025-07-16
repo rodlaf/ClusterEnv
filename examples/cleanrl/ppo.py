@@ -29,7 +29,7 @@ class Args:
     env_id: str = "LunarLander-v2"
     # env_id: str = "CartPole-v1"
 
-    kl_threshold: float = 0.1 # defines how often weight update must occur
+    kl_threshold: float = 0.8 # defines how often weight update must occur # [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 0.8, 1.0]
     total_timesteps: int = 5000000
     learning_rate: float = 5e-4
     num_steps: int = 1024
@@ -38,7 +38,7 @@ class Args:
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
-    num_minibatches: int = 4
+    num_minibatches: int = 8
     update_epochs: int = 30
     norm_adv: bool = True
     clip_coef: float = 0.2

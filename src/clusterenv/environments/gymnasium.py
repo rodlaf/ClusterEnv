@@ -21,3 +21,4 @@ def make_env(env_config):
         return _init
 
     return gym.vector.SyncVectorEnv([make_single_env(i) for i in range(num_envs)])
+
