@@ -31,6 +31,8 @@ def launch_slurm_job(slurm_config: SlurmConfig, env_config_path: str):
     gpu_type = slurm_config.gpu_type
     debug = slurm_config.debug
 
+    debug_flag = "--debug" if debug else ""
+
     slurm_script = f"""#!/bin/bash
 #SBATCH --job-name={job_name}
 ##SBATCH --gres={gpu_type}:{gpus_per_node} # TODO
@@ -49,8 +51,7 @@ module load cuda
 srun python -m clusterenv.worker \
     --config_path {env_config_path} \
     --controller_ip {controller_ip} \
-    --controller_port 5555
-    --debug {debug}
+    --controller_port 5555 {debug_flag}
 """
 
     os.makedirs("logs", exist_ok=True)
@@ -60,3 +61,4 @@ srun python -m clusterenv.worker \
 
     print(f"[ClusterEnv] Submitting SLURM job: {slurm_path}")
     subprocess.run(["sbatch", slurm_path])
+
