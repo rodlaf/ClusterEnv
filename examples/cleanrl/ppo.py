@@ -26,19 +26,19 @@ class Args:
     wandb_entity: str = None
     capture_video: bool = False
 
-    env_id: str = "LunarLander-v2"
-    # env_id: str = "CartPole-v1"
+    # env_id: str = "LunarLander-v2"
+    env_id: str = "CartPole-v1"
 
     kl_threshold: float = 0.8 # defines how often weight update must occur # [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 0.8, 1.0]
     total_timesteps: int = 5000000
     learning_rate: float = 5e-4
-    num_steps: int = 1024
-    envs_per_node: int = 64
+    num_steps: int = 128
+    envs_per_node: int = 512
     num_nodes: int = 4
     anneal_lr: bool = True
     gamma: float = 0.99
     gae_lambda: float = 0.95
-    num_minibatches: int = 8
+    num_minibatches: int = 32
     update_epochs: int = 30
     norm_adv: bool = True
     clip_coef: float = 0.2
