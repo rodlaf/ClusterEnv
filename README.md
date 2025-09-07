@@ -1,6 +1,6 @@
 # ClusterEnv
 
-ClusterEnv is a lightweight interface for distributed reinforcement learning (RL) environment execution on Slurm-managed clusters. It decouples environment simulation from training logic, enabling scalable rollout collection without adopting a monolithic framework. ClusterEnv mirrors the Gymnasium API and introduces two core components: the **DETACH** architecture and **Adaptive Actor Policy Synchronization (AAPS)**.
+ClusterEnv is a lightweight interface for distributed reinforcement learning (RL) environment execution on Slurm-managed clusters. It decouples environment simulation from training logic, enabling scalable rollout collection without adopting a monolithic framework. ClusterEnv mirrors the Gymnasium API and introduces two core components: the DETACH architecture and Adaptive Policy Synchronization (APS).
 
 
 ## Basic Usage
@@ -31,7 +31,7 @@ for _ in range(1000):
     obs, reward, done, info = env.step(agent)
 ```
 
-Policy synchronization via AAPS is handled internally. Agents pull updated weights only when their local policy drifts too far from the central learner, as measured by KL divergence.
+Policy synchronization via APS is handled internally. Agents pull updated weights only when their local policy drifts too far from the central learner, as measured by KL divergence.
 
 ## Installation
 
