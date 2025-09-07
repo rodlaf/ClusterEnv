@@ -22,9 +22,11 @@ class ClusterEnv:
 
         self.workers = []
         self.worker_ready = set()
-        self.agent_sent = False
+        self.agent_sent_to = set()
 
         self.serialized_agent = None
+        self.latest_agent_weights = None
+        self.weight_version = 0
 
         self.debug = config.debug
 
@@ -103,25 +105,52 @@ class ClusterEnv:
         return self._gather("reset")
 
     def step(self, agent_input: torch.nn.Module):
+        """Broadcast a step command to all workers.
+
+        The head node only increments the internal weight version when the
+        provided ``agent_input``'s parameters actually change. This prevents
+        workers from requesting weight updates on every step when the weights
+        remain unchanged.
+        """
+
+        import hashlib
+        from torch.nn.utils import parameters_to_vector
+
         if not self.serialized_agent:
+            # Serialize the agent structure once so workers can reconstruct it on
+            # their first weight request.
             self.serialized_agent = cloudpickle.dumps(agent_input)
 
-        if not self.agent_sent:
-            self.agent_sent = True
-            agent_payload = self.serialized_agent.hex()
-        else:
-            agent_payload = None
+        # Compute a hash of the current parameters to detect changes.
+        flat_params = parameters_to_vector(agent_input.state_dict().values()).cpu().numpy()
+        weight_hash = hashlib.sha1(flat_params.tobytes()).hexdigest()
 
-        agent_state = agent_input.state_dict()
-        agent_weights = {k: v.cpu().numpy().tolist() for k, v in agent_state.items()}
+        if getattr(self, "_weight_hash", None) != weight_hash:
+            # Only update stored weights and bump the version if something
+            # actually changed since the last call.
+            self.latest_agent_weights = {
+                k: v.cpu().numpy().tolist() for k, v in agent_input.state_dict().items()
+            }
+            self.weight_version += 1
+            self._weight_hash = weight_hash
+
+            if self.debug:
+                print(
+                    f"[ClusterEnv] Updated weights to version {self.weight_version}",
+                    flush=True,
+                )
+
+        if self.debug:
+            print(
+                f"[ClusterEnv] Broadcasting step with weight_version={self.weight_version}",
+                flush=True,
+            )
 
         for identity in self.workers:
             payload = {
                 "type": "step",
-                "agent_weights": agent_weights,
+                "weights_version": self.weight_version,
             }
-            if agent_payload:
-                payload["agent_serialized"] = agent_payload
             self.socket.send_multipart([
                 identity,
                 b"",
@@ -150,6 +179,27 @@ class ClusterEnv:
 
                 identity, _, message = parts
                 msg = json.loads(message.decode())
+
+                if msg["type"] == "weight_request":
+                    if self.debug:
+                        print(
+                            f"[ClusterEnv] Weight request from {identity.decode()} (version={self.weight_version})",
+                            flush=True,
+                        )
+                    response = {
+                        "type": "weight_update",
+                        "agent_weights": self.latest_agent_weights,
+                        "weights_version": self.weight_version,
+                    }
+                    if identity not in self.agent_sent_to:
+                        response["agent_serialized"] = self.serialized_agent.hex()
+                        self.agent_sent_to.add(identity)
+                    self.socket.send_multipart([
+                        identity,
+                        b"",
+                        json.dumps(response).encode(),
+                    ])
+                    continue
 
                 if msg["type"] == "response":
                     if identity in remaining:
