@@ -22,9 +22,11 @@ class ClusterEnv:
 
         self.workers = []
         self.worker_ready = set()
-        self.agent_sent = False
+        self.agent_sent_to = set()
 
         self.serialized_agent = None
+        self.latest_agent_weights = None
+        self.weight_version = 0
 
         self.debug = config.debug
 
@@ -106,22 +108,19 @@ class ClusterEnv:
         if not self.serialized_agent:
             self.serialized_agent = cloudpickle.dumps(agent_input)
 
-        if not self.agent_sent:
-            self.agent_sent = True
-            agent_payload = self.serialized_agent.hex()
-        else:
-            agent_payload = None
+        self.latest_agent_weights = {
+            k: v.cpu().numpy().tolist() for k, v in agent_input.state_dict().items()
+        }
+        self.weight_version += 1
 
-        agent_state = agent_input.state_dict()
-        agent_weights = {k: v.cpu().numpy().tolist() for k, v in agent_state.items()}
+        if self.debug:
+            print(f"[ClusterEnv] Broadcasting step with weight_version={self.weight_version}")
 
         for identity in self.workers:
             payload = {
                 "type": "step",
-                "agent_weights": agent_weights,
+                "weights_version": self.weight_version,
             }
-            if agent_payload:
-                payload["agent_serialized"] = agent_payload
             self.socket.send_multipart([
                 identity,
                 b"",
@@ -150,6 +149,27 @@ class ClusterEnv:
 
                 identity, _, message = parts
                 msg = json.loads(message.decode())
+
+                if msg["type"] == "weight_request":
+                    if self.debug:
+                        print(
+                            f"[ClusterEnv] Weight request from {identity.decode()} (version={self.weight_version})",
+                            flush=True,
+                        )
+                    response = {
+                        "type": "weight_update",
+                        "agent_weights": self.latest_agent_weights,
+                        "weights_version": self.weight_version,
+                    }
+                    if identity not in self.agent_sent_to:
+                        response["agent_serialized"] = self.serialized_agent.hex()
+                        self.agent_sent_to.add(identity)
+                    self.socket.send_multipart([
+                        identity,
+                        b"",
+                        json.dumps(response).encode(),
+                    ])
+                    continue
 
                 if msg["type"] == "response":
                     if identity in remaining:
