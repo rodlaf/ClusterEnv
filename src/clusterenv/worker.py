@@ -76,14 +76,13 @@ def main():
         print("[Worker] Sent registration", file=sys.stderr)
         sys.stderr.flush()
 
-    kl_threshold = env_config.get("kl_threshold")
-    old_logits = None
+    # Default to always syncing if no threshold was provided
+    kl_threshold = env_config.get("kl_threshold", 0.0)
 
     while True:
         parts = socket.recv_multipart()
         if debug:
-            print(f"[Worker] Received parts: {len(parts)}", file=sys.stderr)
-            sys.stderr.flush()
+            print(f"[Worker] Received parts: {len(parts)}", file=sys.stderr, flush=True)
 
         if len(parts) < 2:
             if debug:
@@ -108,14 +107,19 @@ def main():
 
         elif payload["type"] == "step":
             if debug:
-                print("[Worker] Received step payload", file=sys.stderr)
+                print(
+                    f"[Worker] Received step payload (version={payload.get('weights_version')}, current={current_version})",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
             step_version = payload.get("weights_version", 0)
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
 
-            if agent is None or step_version != current_version:
+            # === Handle weight updates ===
+            if agent is None:
                 if debug:
-                    print("[Worker] Requesting weight update", file=sys.stderr)
+                    print("[Worker] No agent, requesting initial weights", file=sys.stderr, flush=True)
                 socket.send_multipart([
                     b"",
                     json.dumps({"type": "weight_request"}).encode(),
@@ -123,40 +127,67 @@ def main():
                 update_parts = socket.recv_multipart()
                 update_msg = json.loads(update_parts[-1].decode())
 
-                if "agent_serialized" in update_msg and agent is None:
+                if "agent_serialized" in update_msg:
                     if debug:
-                        print("[Worker] Deserializing agent...", file=sys.stderr)
+                        print("[Worker] Deserializing agent...", file=sys.stderr, flush=True)
                     agent = cloudpickle.loads(bytes.fromhex(update_msg["agent_serialized"]))
                     agent.to(device)
                     agent.eval()
 
+                deserialize_weights(agent, update_msg["agent_weights"])
+                current_version = update_msg.get("weights_version", step_version)
+                sync_count += 1
+                if debug:
+                    print(f"[Worker] Initial sync to version {current_version}", file=sys.stderr, flush=True)
+
+            elif step_version != current_version:
+                if debug:
+                    print(
+                        f"[Worker] Version mismatch (local={current_version}, head={step_version}). Requesting weights...",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+                with torch.no_grad():
+                    old_logits = agent.actor(obs_tensor)
+
+                socket.send_multipart([
+                    b"",
+                    json.dumps({"type": "weight_request"}).encode(),
+                ])
+                update_parts = socket.recv_multipart()
+                update_msg = json.loads(update_parts[-1].decode())
                 weights = update_msg["agent_weights"]
 
-                if agent is not None and old_logits is not None:
-                    with torch.no_grad():
-                        tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
-                        tmp_agent.to(device)
-                        tmp_agent.eval()
-                        deserialize_weights(tmp_agent, weights)
-                        new_logits = tmp_agent.actor(obs_tensor)
-                        kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+                with torch.no_grad():
+                    tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
+                    tmp_agent.to(device)
+                    tmp_agent.eval()
+                    deserialize_weights(tmp_agent, weights)
+                    new_logits = tmp_agent.actor(obs_tensor)
+                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
 
-                    if kl > kl_threshold:
-                        deserialize_weights(agent, weights)
-                        current_version = update_msg.get("weights_version", step_version)
-                        sync_count += 1
-                        if debug:
-                            print(f"[Worker] KL sync triggered (KL={kl:.4f}). sync_count={sync_count}", file=sys.stderr)
-                    else:
-                        if debug:
-                            print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
-                else:
-                    # First-time sync
+                if debug:
+                    print(f"[Worker] KL divergence={kl:.6f}", file=sys.stderr, flush=True)
+
+                if kl > kl_threshold:
                     deserialize_weights(agent, weights)
                     current_version = update_msg.get("weights_version", step_version)
                     sync_count += 1
                     if debug:
-                        print("[Worker] First-time sync", file=sys.stderr)
+                        print(
+                            f"[Worker] Applied weight update to version {current_version} (KL={kl:.4f})",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                else:
+                    current_version = step_version
+                    if debug:
+                        print(
+                            f"[Worker] KL below threshold (KL={kl:.4f} <= {kl_threshold}). Skipping update.",
+                            file=sys.stderr,
+                            flush=True,
+                        )
 
             if agent is None:
                 raise ValueError("Agent is not initialized after weight update.")
@@ -165,7 +196,6 @@ def main():
             # === Inference
             with torch.no_grad():
                 action, logprob, _, value = agent(obs_tensor)
-                old_logits = agent.actor(obs_tensor).detach()
 
             # === Step environment
             action_np = action.cpu().numpy().squeeze(0)
@@ -215,8 +245,7 @@ def main():
             ])
             obs = obs_next
             if debug:
-                print("[Worker] Sent step response", file=sys.stderr)
-            sys.stderr.flush()
+                print("[Worker] Sent step response", file=sys.stderr, flush=True)
 
 
 

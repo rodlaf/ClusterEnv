@@ -113,6 +113,10 @@ class ClusterEnv:
         }
         self.weight_version += 1
 
+        if self.debug:
+            print(f"[ClusterEnv] Broadcasting step with weight_version={self.weight_version}")
+
+
         for identity in self.workers:
             payload = {
                 "type": "step",
@@ -148,6 +152,12 @@ class ClusterEnv:
                 msg = json.loads(message.decode())
 
                 if msg["type"] == "weight_request":
+                    if self.debug:
+                        print(
+                            f"[ClusterEnv] Weight request from {identity.decode()} (version={self.weight_version})",
+                            flush=True,
+                        )
+
                     response = {
                         "type": "weight_update",
                         "agent_weights": self.latest_agent_weights,
