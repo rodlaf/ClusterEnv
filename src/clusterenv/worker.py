@@ -40,6 +40,7 @@ def main():
     debug = args.debug
 
     sync_count = 0
+    current_version = 0
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -109,51 +110,57 @@ def main():
             if debug:
                 print("[Worker] Received step payload", file=sys.stderr)
 
-            # Deserialize agent ONCE if needed
-            if "agent_serialized" in payload and agent is None:
-                if debug:
-                    print("[Worker] Deserializing agent...", file=sys.stderr)
-                agent = cloudpickle.loads(bytes.fromhex(payload["agent_serialized"]))
-                agent.to(device)
-                agent.eval()
-                if debug:
-                    print("[Worker] Agent deserialized", file=sys.stderr)
-
-            if agent is None:
-                raise ValueError("Agent is not initialized and was not provided.")
-
-            # === Get candidate weights from payload ===
-            weights = payload["agent_weights"]
+            step_version = payload.get("weights_version", 0)
             obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
 
-            # === Handle KL-based sync ===
-            if old_logits is not None:
-                with torch.no_grad():
-                    # Step 1: Clone agent and load candidate weights 
-                    # TODO: leaving realized performance on the table; need pull-based architecture
-                    tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
-                    tmp_agent.to(device)
-                    tmp_agent.eval()
-                    deserialize_weights(tmp_agent, weights)
+            if agent is None or step_version != current_version:
+                if debug:
+                    print("[Worker] Requesting weight update", file=sys.stderr)
+                socket.send_multipart([
+                    b"",
+                    json.dumps({"type": "weight_request"}).encode(),
+                ])
+                update_parts = socket.recv_multipart()
+                update_msg = json.loads(update_parts[-1].decode())
 
-                    # Step 2: Compute KL
-                    new_logits = tmp_agent.actor(obs_tensor)
-                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+                if "agent_serialized" in update_msg and agent is None:
+                    if debug:
+                        print("[Worker] Deserializing agent...", file=sys.stderr)
+                    agent = cloudpickle.loads(bytes.fromhex(update_msg["agent_serialized"]))
+                    agent.to(device)
+                    agent.eval()
 
-                if kl > kl_threshold:
+                weights = update_msg["agent_weights"]
+
+                if agent is not None and old_logits is not None:
+                    with torch.no_grad():
+                        tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
+                        tmp_agent.to(device)
+                        tmp_agent.eval()
+                        deserialize_weights(tmp_agent, weights)
+                        new_logits = tmp_agent.actor(obs_tensor)
+                        kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+
+                    if kl > kl_threshold:
+                        deserialize_weights(agent, weights)
+                        current_version = update_msg.get("weights_version", step_version)
+                        sync_count += 1
+                        if debug:
+                            print(f"[Worker] KL sync triggered (KL={kl:.4f}). sync_count={sync_count}", file=sys.stderr)
+                    else:
+                        if debug:
+                            print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
+                else:
+                    # First-time sync
                     deserialize_weights(agent, weights)
+                    current_version = update_msg.get("weights_version", step_version)
                     sync_count += 1
                     if debug:
-                        print(f"[Worker] KL sync triggered (KL={kl:.4f}). sync_count={sync_count}", file=sys.stderr)
-                else:
-                    if debug:
-                        print(f"[Worker] KL={kl:.4f} < threshold. Skipping sync.", file=sys.stderr)
-            else:
-                # First-time sync
-                deserialize_weights(agent, weights)
-                sync_count += 1
-                if debug:
-                    print("[Worker] First-time sync", file=sys.stderr)
+                        print("[Worker] First-time sync", file=sys.stderr)
+
+            if agent is None:
+                raise ValueError("Agent is not initialized after weight update.")
+
 
             # === Inference
             with torch.no_grad():
