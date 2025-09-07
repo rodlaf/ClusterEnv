@@ -169,6 +169,10 @@ def main():
                 if debug:
                     print(f"[Worker] KL divergence={kl:.6f}", file=sys.stderr, flush=True)
 
+
+                if debug:
+                    print(f"[Worker] KL divergence={kl:.6f}", file=sys.stderr, flush=True)
+
                 if kl > kl_threshold:
                     if debug:
                         print(
@@ -184,11 +188,13 @@ def main():
                     update_parts = socket.recv_multipart()
                     update_msg = json.loads(update_parts[-1].decode())
                     deserialize_weights(agent, update_msg["agent_weights"])
+
                     current_version = update_msg.get("weights_version", step_version)
                     sync_count += 1
                     if debug:
                         print(
                             f"[Worker] Applied weight update to version {current_version}",
+
                             file=sys.stderr,
                             flush=True,
                         )
