@@ -143,7 +143,7 @@ def main():
             elif step_version != current_version:
                 if debug:
                     print(
-                        f"[Worker] Version mismatch (local={current_version}, head={step_version}). Requesting weights...",
+                        f"[Worker] Version mismatch (local={current_version}, head={step_version}). Probing KL...",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -151,32 +151,50 @@ def main():
                 with torch.no_grad():
                     old_logits = agent.actor(obs_tensor)
 
+                # Ask the head node for logits under the latest weights without
+                # transmitting the full parameter set.
                 socket.send_multipart([
                     b"",
-                    json.dumps({"type": "weight_request"}).encode(),
+                    json.dumps({
+                        "type": "kl_probe",
+                        "obs": obs.tolist(),
+                    }).encode(),
                 ])
-                update_parts = socket.recv_multipart()
-                update_msg = json.loads(update_parts[-1].decode())
-                weights = update_msg["agent_weights"]
+                probe_parts = socket.recv_multipart()
+                probe_msg = json.loads(probe_parts[-1].decode())
+                new_logits = torch.tensor(probe_msg["logits"], device=device)
 
-                with torch.no_grad():
-                    tmp_agent = cloudpickle.loads(cloudpickle.dumps(agent))
-                    tmp_agent.to(device)
-                    tmp_agent.eval()
-                    deserialize_weights(tmp_agent, weights)
-                    new_logits = tmp_agent.actor(obs_tensor)
-                    kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+                kl = compute_kl(old_logits.detach(), new_logits.detach()).item()
+
+                if debug:
+                    print(f"[Worker] KL divergence={kl:.6f}", file=sys.stderr, flush=True)
+
 
                 if debug:
                     print(f"[Worker] KL divergence={kl:.6f}", file=sys.stderr, flush=True)
 
                 if kl > kl_threshold:
-                    deserialize_weights(agent, weights)
+                    if debug:
+                        print(
+                            f"[Worker] KL above threshold (KL={kl:.4f} > {kl_threshold}). Requesting weights...",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+
+                    socket.send_multipart([
+                        b"",
+                        json.dumps({"type": "weight_request"}).encode(),
+                    ])
+                    update_parts = socket.recv_multipart()
+                    update_msg = json.loads(update_parts[-1].decode())
+                    deserialize_weights(agent, update_msg["agent_weights"])
+
                     current_version = update_msg.get("weights_version", step_version)
                     sync_count += 1
                     if debug:
                         print(
-                            f"[Worker] Applied weight update to version {current_version} (KL={kl:.4f})",
+                            f"[Worker] Applied weight update to version {current_version}",
+
                             file=sys.stderr,
                             flush=True,
                         )

@@ -121,6 +121,10 @@ class ClusterEnv:
             # their first weight request.
             self.serialized_agent = cloudpickle.dumps(agent_input)
 
+        # Keep a reference to the latest agent so we can service KL probes.
+        self.agent = agent_input
+        self.agent.eval()
+
         # Compute a hash of the current parameters to detect changes.
         flat_params = parameters_to_vector(agent_input.state_dict().values()).cpu().numpy()
         weight_hash = hashlib.sha1(flat_params.tobytes()).hexdigest()
@@ -202,6 +206,23 @@ class ClusterEnv:
                         json.dumps(response).encode(),
                     ])
                     continue
+
+                if msg["type"] == "kl_probe":
+                    obs = torch.tensor(msg["obs"], dtype=torch.float32).unsqueeze(0)
+                    with torch.no_grad():
+                        logits = self.agent.actor(obs).cpu().tolist()
+                    response = {
+                        "type": "kl_response",
+                        "logits": logits,
+                        "weights_version": self.weight_version,
+                    }
+                    self.socket.send_multipart([
+                        identity,
+                        b"",
+                        json.dumps(response).encode(),
+                    ])
+                    continue
+
 
                 if msg["type"] == "response":
                     if identity in remaining:
